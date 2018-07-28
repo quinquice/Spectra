@@ -1,5 +1,4 @@
-def concat_chars(*chs):
-    return "".join(chs)
+from more_itertools import peekable
 
 class Monocular:
     def __init__(self, base_array, base_key="base"):
@@ -42,7 +41,7 @@ class Monocular:
         self.continuity_height[base_key] = 0
         self.singularity_height[base_key] = 0
         if type(base_array) is type("string"):
-            self.monoid[base_key] = concat_chars
+            self.monoid[base_key] = lambda *chs: "".join(chs)
 
     def view(self, *scopes, prefix=None, suffix=None):
 
@@ -65,14 +64,14 @@ class Monocular:
         sequence = scope.split(".")
         akey = sequence[-1]
         fkey = self.fkey_of[akey]
-        it = iter(self.array[akey])
+        it = self.array[akey]
         # pass the iterable through each frame in the scope
         for viewpoint in reversed(sequence[:-1]):
-            it = self._view_iter(it, viewpoint, fkey, akey)
+            it = self._view_peekable(peekable(it), viewpoint, fkey, akey)
             fkey = viewpoint
         return it
 
-    def _view_iter(self, it, viewpoint, fkey, akey):
+    def _view_peekable(self, it, viewpoint, fkey, akey):
 
         index = 0
         singular = self._view_is_singular(viewpoint, fkey, akey)
@@ -89,8 +88,12 @@ class Monocular:
 
                 # add all visible elements
                 while index < len(frame):
-                    lo = frame[index][0][0]
+                    lo, hi = frame[index][0][0], frame[index][-1][-1]
                     if lo >= hi_bound:
+                        break
+                    if hi > hi_bound:
+                        # if element is visible in next cell, don't pop it
+                        section += it.peek(),
                         break
                     section += next(it),
                     index += 1
@@ -247,27 +250,29 @@ class Monocular:
         self.array[akey] = array
         self.fkey_of[akey] = viewpoint
         if type(array) is type("string"):
-            self.monoid[akey] = concat_chars
+            self.monoid[akey] = lambda *chs: "".join(chs)
 
 def test():
 
-    m = Monocular("There was a big, brown, dog. HA! His nickname was fat Joe.\nHAHA! This is a second line.", base_key="chars")
+    # random sentences courtesy of https://randomwordgenerator.com/sentence.php
+    m = Monocular("She only paints with bold colors; she does not like pastels. "
+                + "I checked to make sure that he was still alive.\n"
+                + "Abstraction is often one floor above you. "
+                + "Please wait outside of the house.",
+                  base_key="chars")
 
     m.new_frame_filter("words", "chars", lambda c: c.isalpha(), merge=True)
     m.new_frame_filter("tokens", "chars", lambda c: c not in " \t\n", merge=True)
-    m.new_frame("sents", "chars", [(0, 28), (29, 32), (33, 58), (59, 64), (65, 87)])
-    m.new_array("POS", "words", [
-        "PRN", "VB", "ART", "ADJ", "ADJ", "NN", "EX", "PRN", "NN", "VB", "ADJ", "NN",
-        "EX", "PRN", "VB", "ART", "ADJ", "NN"
-    ])
+    m.new_frame("sents", "chars", [(0, 60), (61, 108), (109, 150), (141, 184)])
+    m.new_frame("clauses", "chars", [(0, 33), (34, 60), (61, 108), (109, 150), (141, 184)])
     m.new_frame_filter("lower_words", "words.chars", lambda w: w.lower() == w)
-    m.new_frame_filter("upper_words", "words.chars", lambda w: w.upper() == w)
-    m.new_frame_filter("mixed_words", "words.chars", lambda w: w not in (w.upper(), w.lower()))
-    m.new_frame_filter("adj_chains", "POS", lambda p: p == "ADJ", merge=True)
+    m.new_frame_filter("anti_lower_words", "words.chars", lambda w: w.lower() != w)
     m.new_frame_filter("lines", "chars", lambda c: c != "\n", merge=True)
 
-    print(m.viewt("lines.sents.lower_words.upper_words.POS"))
-
+    for ix_line, line in enumerate(m.view("lines.clauses.words.chars")):
+        for ix_clause, clause in enumerate(line):
+            for ix_word, word in enumerate(clause):
+                print("L{}.C{}.W{} : {}".format(ix_line, ix_clause, ix_word, word))
 
 if __name__ == "__main__":
     test()
